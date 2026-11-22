@@ -1,0 +1,19 @@
+# Python & virtual environment
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Local runtime config
+config.json
+
+# Unused intermediate assets
+assets/idle_white_bg.png
+assets/walk_*.png
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
