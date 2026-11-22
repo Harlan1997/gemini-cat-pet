@@ -36,7 +36,7 @@ EXPRESSION_LABELS: dict[str, str] = {
     "pounce": "盘腿玩星芒 ✦",
     "shy": "害羞鸭子坐 💕",
     "sleepy": "抱尾打盹 💤",
-    "stretch": "踮脚伸懒腰 🌟",
+    "stretch": "猫式伸懒腰 🌟",
     "drag": "拎猫悬空 🎀",
 }
 
@@ -64,7 +64,7 @@ POSE_HEIGHT_RATIO: dict[str, float] = {
     "pounce": 0.70,
     "shy": 0.70,
     "sleepy": 0.73,
-    "stretch": 1.12,
+    "stretch": 0.50,
     "drag": 0.85,
 }
 
