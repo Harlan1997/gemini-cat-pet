@@ -2,11 +2,18 @@
 
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-ASSETS_DIR = ROOT_DIR / "assets"
-CONFIG_PATH = ROOT_DIR / "config.json"
+if getattr(sys, "frozen", False):
+    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    APP_DIR = Path(sys.executable).resolve().parent
+else:
+    BUNDLE_DIR = Path(__file__).resolve().parent.parent
+    APP_DIR = BUNDLE_DIR
+
+ASSETS_DIR = BUNDLE_DIR / "assets"
+CONFIG_PATH = APP_DIR / "config.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "pet_height": 300,
