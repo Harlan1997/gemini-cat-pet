@@ -346,14 +346,14 @@ class SoftPoseRig:
             sway = math.sin(t * 4.4) * 0.75
             breath = math.sin(t * 4.4 + 0.6) * 0.55
             wave = math.sin(t * 2.8) * 0.8
-        elif self.pose_kind == "sleepy":
-            sway = math.sin(t * 1.1) * 0.25
+        elif self.pose_kind in ("sleepy", "nap", "side_sleep"):
+            sway = math.sin(t * 1.0) * 0.22
             breath = math.sin(t * 1.35) * 1.15
-            wave = math.sin(t * 1.1 + 1.0) * 0.35
+            wave = math.sin(t * 1.1 + 1.0) * 0.42
         elif self.pose_kind == "pounce":
-            sway = math.sin(t * 5.2) * 0.85
-            breath = math.sin(t * 5.2) * 0.65
-            wave = math.sin(t * 4.0) * 1.15
+            sway = math.sin(t * 2.4) * 0.55
+            breath = math.sin(t * 2.2) * 0.65
+            wave = math.sin(t * 2.8) * 0.85
         elif self.pose_kind == "purr":
             sway = math.sin(t * 3.8) * 0.75
             breath = math.sin(t * 3.8) * 0.55

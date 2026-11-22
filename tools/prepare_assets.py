@@ -13,10 +13,11 @@ ARTIFACT_DIR = Path(
 
 HD_SOURCES: dict[str, Path] = {
     "idle": ARTIFACT_DIR / "pose_thinking_prone_1795287697797.jpg",
-    "happy": ARTIFACT_DIR / "cute_happy_v2_1795286829445.jpg",
+    "nap": ARTIFACT_DIR / "cat_desk_nap_1795366460075.jpg",
+    "side_sleep": ARTIFACT_DIR / "cat_side_sleep_1795367145455.jpg",
     "purr": ARTIFACT_DIR / "cat_purr_v2_1795288414966.jpg",
     "groom": ARTIFACT_DIR / "cat_groom_1795288369814.jpg",
-    "pounce": ARTIFACT_DIR / "cat_pounce_1795288380502.jpg",
+    "pounce": ARTIFACT_DIR / "cat_crossleg_star_fixed_1795365958311.jpg",
     "shy": ARTIFACT_DIR / "pose_shy_kneel_1795287700058.jpg",
     "sleepy": ARTIFACT_DIR / "cute_sleepy_1795286782479.jpg",
     "stretch": ARTIFACT_DIR / "pose_stretch_1795287759125.jpg",

@@ -12,6 +12,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "pet_height": 300,
     "always_on_top": True,
     "auto_pose": True,
+    "hide_on_fullscreen": True,
+    "activity_aware": True,
     "pos_x": None,
     "pos_y": None,
     "reminders": {

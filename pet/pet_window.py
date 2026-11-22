@@ -18,19 +18,22 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
+from pet.activity_watcher import ActivityReactor, ActivitySnapshot, inspect_current_activity
 from pet.bubble import SpeechBubble
 from pet.config import ASSETS_DIR, save_config
 from pet.dialogue import pick_line
+from pet.fullscreen import is_fullscreen_on_widget_monitor
 from pet.live_deformer import ProneIdleRig, SoftPoseRig
 from pet.particles import ParticleSystem
 from pet.reminder import ReminderManager, ReminderSettingsDialog
 
 EXPRESSION_LABELS: dict[str, str] = {
     "idle": "趴桌晃脚 (默认活体待机) 💭",
-    "happy": "眨眼双猫爪 ✨",
+    "nap": "趴桌瞌睡 🌙",
+    "side_sleep": "侧躺安睡 🌠",
     "purr": "摸头呼噜噜 😻",
     "groom": "猫猫爪爪洗脸 🐱",
-    "pounce": "蹲扑四角星 ✦",
+    "pounce": "盘腿玩星芒 ✦",
     "shy": "害羞鸭子坐 💕",
     "sleepy": "抱尾打盹 💤",
     "stretch": "踮脚伸懒腰 🌟",
@@ -40,7 +43,8 @@ EXPRESSION_LABELS: dict[str, str] = {
 IDLE_FACE_KEYS = ("idle", "idle_half", "idle_closed", "idle_happy", "idle_talk")
 
 SECONDARY_POSE_KEYS = (
-    "happy",
+    "nap",
+    "side_sleep",
     "purr",
     "groom",
     "pounce",
@@ -53,7 +57,8 @@ SECONDARY_POSE_KEYS = (
 # Relative visual height vs standing pose (keeps head size consistent across poses)
 POSE_HEIGHT_RATIO: dict[str, float] = {
     "idle": 0.58,
-    "happy": 1.00,
+    "nap": 0.46,
+    "side_sleep": 0.48,
     "purr": 1.00,
     "groom": 0.70,
     "pounce": 0.70,
@@ -75,9 +80,14 @@ class GeminiPetWindow(QWidget):
         self._pet_height: int = int(config.get("pet_height", 300))
         self._always_on_top: bool = bool(config.get("always_on_top", True))
         self._auto_pose: bool = bool(config.get("auto_pose", True))
+        self._hide_on_fullscreen: bool = bool(config.get("hide_on_fullscreen", True))
+        self._activity_aware: bool = bool(config.get("activity_aware", True))
+        self._hidden_by_fullscreen: bool = False
+        self._manually_hidden: bool = False
 
         self._apply_window_flags()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setMouseTracking(True)
 
         # Raw full-HD PIL images and real-time OpenCV live deformer rigs
@@ -151,6 +161,7 @@ class GeminiPetWindow(QWidget):
         self._bubble = SpeechBubble()
         self._reminder_mgr = ReminderManager(self.config["reminders"], self)
         self._reminder_mgr.reminder_triggered.connect(self._on_reminder)
+        self._activity_reactor = ActivityReactor()
 
         self._pad = 36
         self._rebuild_rigs()
@@ -162,6 +173,18 @@ class GeminiPetWindow(QWidget):
         self._anim_timer.setInterval(16)
         self._anim_timer.timeout.connect(self._on_frame)
         self._anim_timer.start()
+
+        # Lightweight 500ms fullscreen watcher (hides pet & pauses CPU when gaming/watching videos)
+        self._fs_timer = QTimer(self)
+        self._fs_timer.setInterval(500)
+        self._fs_timer.timeout.connect(self._check_fullscreen)
+        self._fs_timer.start()
+
+        # Lightweight 5s foreground-app / music / battery watcher
+        self._activity_timer = QTimer(self)
+        self._activity_timer.setInterval(5000)
+        self._activity_timer.timeout.connect(self._poll_activity)
+        self._activity_timer.start()
 
         QTimer.singleShot(550, lambda: self.say(pick_line("greeting"), duration_ms=5000))
 
@@ -274,13 +297,72 @@ class GeminiPetWindow(QWidget):
         return QRect(self.x() + left_x, self.y() + top_y, sw, sh)
 
     def _on_reminder(self, title: str, message: str, expr: str) -> None:
+        if self._hidden_by_fullscreen:
+            # Don't pop over a fullscreen game/video; send a gentle tray notification only
+            self.tray_notify_requested.emit(title, message)
+            return
         if not self.isVisible():
+            self._manually_hidden = False
             self.show()
         self._state = "sleepy" if expr == "sleepy" else "idle"
         self.set_expression(expr, duration_sec=11.0)
         self._particles.spawn_stars(self.width() / 2, self.height() * 0.42, count=12, spread=70)
         self.say(message, duration_ms=12_000, title=title)
         self.tray_notify_requested.emit(title, message)
+
+    def _check_fullscreen(self) -> None:
+        if not self._hide_on_fullscreen:
+            if self._hidden_by_fullscreen:
+                self._restore_from_fullscreen()
+            return
+        if self._manually_hidden or self._dragging:
+            return
+
+        fs_active = is_fullscreen_on_widget_monitor(int(self.winId()))
+        if fs_active and not self._hidden_by_fullscreen:
+            self._hidden_by_fullscreen = True
+            self._bubble.hide()
+            self.hide()
+            self._anim_timer.stop()
+        elif not fs_active and self._hidden_by_fullscreen:
+            self._restore_from_fullscreen()
+
+    def _restore_from_fullscreen(self) -> None:
+        self._hidden_by_fullscreen = False
+        self._last_tick = time.monotonic()
+        if not self._anim_timer.isActive():
+            self._anim_timer.start()
+        if not self._manually_hidden:
+            self.show()
+
+    def _poll_activity(self) -> None:
+        if (
+            not self._activity_aware
+            or not self.isVisible()
+            or self._hidden_by_fullscreen
+            or self._dragging
+            or self._bubble.isVisible()
+        ):
+            return
+        snap = self._activity_reactor.poll()
+        if snap is not None:
+            self._react_to_activity(snap)
+
+    def _react_to_activity(self, snap: ActivitySnapshot) -> None:
+        cat = snap.category or "activity_unknown"
+        self._trigger_ear_twitch("left")
+        self._trigger_ear_twitch("right")
+        self._particles.spawn_stars(self.width() * 0.42, self.height() * 0.45, count=4, spread=32)
+
+        if cat == "low_battery":
+            self.say(pick_line("low_battery"), duration_ms=6500, title=f"低电量警告 ({snap.app_name})")
+        else:
+            self.say(pick_line(cat), duration_ms=4800)
+
+    def inspect_activity_now(self) -> None:
+        """Manually scan current foreground app / background music / battery right away."""
+        # Wait 120ms after right-click menu closes so foreground focus returns to the user's app
+        QTimer.singleShot(120, lambda: self._react_to_activity(inspect_current_activity()))
 
     def _update_blink(self, now: float) -> None:
         if self._blink_phase == "open":
@@ -388,10 +470,15 @@ class GeminiPetWindow(QWidget):
         if self._crossfade_elapsed < self._crossfade_duration:
             self._crossfade_elapsed = min(self._crossfade_duration, self._crossfade_elapsed + dt)
 
-        # Sleepy Zzz particles
-        if (self._state == "sleepy" or self._expression == "sleepy") and now >= self._next_zzz_at:
+        # Sleepy / desk-nap / side-sleep Zzz particles
+        if (
+            self._state == "sleepy" or self._expression in ("sleepy", "nap", "side_sleep")
+        ) and now >= self._next_zzz_at:
             self._next_zzz_at = now + 1.15
-            self._particles.spawn_zzz(self.width() * 0.56, self.height() * 0.42)
+            if self._expression in ("nap", "side_sleep"):
+                self._particles.spawn_zzz(self.width() * 0.34, self.height() * 0.56)
+            else:
+                self._particles.spawn_zzz(self.width() * 0.56, self.height() * 0.42)
 
         # Drag pendulum spring physics
         if not self._dragging:
@@ -408,28 +495,38 @@ class GeminiPetWindow(QWidget):
         self.update()
 
     def _choose_next_behavior(self, now: float) -> None:
-        # Calm, cozy rhythm: occasionally wash face, nap, stretch, or swat a star, then return to lying idle
+        # Calm, cozy rhythm: occasionally nap, side-sleep, wash face, curl up, stretch, or play with a star
         roll = random.random()
-        if roll < 0.25:
+        if roll < 0.18:
+            self._state = "sleepy"
+            self.set_expression("nap", duration_sec=14.0)
+            if random.random() < 0.45:
+                self.say(pick_line("nap"), duration_ms=4200)
+        elif roll < 0.36:
+            self._state = "sleepy"
+            self.set_expression("side_sleep", duration_sec=15.0)
+            if random.random() < 0.45:
+                self.say(pick_line("side_sleep"), duration_ms=4200)
+        elif roll < 0.52:
             self._state = "idle"
             self.set_expression("groom", duration_sec=7.0)
             if random.random() < 0.45:
                 self.say(pick_line("groom"), duration_ms=4000)
-        elif roll < 0.48:
+        elif roll < 0.66:
             self._state = "sleepy"
             self.set_expression("sleepy", duration_sec=12.0)
             if random.random() < 0.45:
                 self.say(pick_line("sleepy"), duration_ms=4200)
-        elif roll < 0.68:
+        elif roll < 0.78:
             self._state = "idle"
             self.set_expression("stretch", duration_sec=5.2)
             self._particles.spawn_stars(self.width() / 2, self.height() * 0.30, count=5, spread=45)
             if random.random() < 0.5:
                 self.say(pick_line("stretch"), duration_ms=4000)
-        elif roll < 0.85:
+        elif roll < 0.90:
             self._state = "idle"
-            self.set_expression("pounce", duration_sec=5.5)
-            self._particles.spawn_stars(self.width() * 0.66, self.height() * 0.56, count=5, spread=34)
+            self.set_expression("pounce", duration_sec=6.0)
+            self._particles.spawn_stars(self.width() * 0.38, self.height() * 0.44, count=5, spread=34)
             if random.random() < 0.45:
                 self.say(pick_line("pounce"), duration_ms=4000)
         else:
@@ -661,8 +758,9 @@ class GeminiPetWindow(QWidget):
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._state = "idle"
-            self.set_expression("happy", duration_sec=4.5)
-            self._particles.spawn_stars(self.width() / 2, self.height() * 0.38, count=12, spread=65)
+            self.set_expression("purr", duration_sec=4.5)
+            self._particles.spawn_heart(self.width() / 2, self.height() * 0.34)
+            self._particles.spawn_stars(self.width() / 2, self.height() * 0.38, count=10, spread=65)
             self.say(pick_line("happy"), duration_ms=4000)
             event.accept()
 
@@ -692,7 +790,7 @@ class GeminiPetWindow(QWidget):
                 self.say(pick_line("purr"), duration_ms=3800)
                 return
             # Poking her tail/feet playfully triggers a cute cat pose!
-            expr = random.choice(["pounce", "groom", "happy", "shy", "stretch"])
+            expr = random.choice(["pounce", "groom", "shy", "stretch"])
             self.set_expression(expr, duration_sec=5.0)
             self._particles.spawn_stars(pos.x(), pos.y(), count=6, spread=38)
             line_cat = expr if expr in ("pounce", "groom", "stretch") else "poke_body"
@@ -739,6 +837,18 @@ class GeminiPetWindow(QWidget):
             self._state = "idle"
             self.set_expression("idle")
 
+    def set_hide_on_fullscreen(self, enabled: bool) -> None:
+        self._hide_on_fullscreen = enabled
+        self.config["hide_on_fullscreen"] = enabled
+        save_config(self.config)
+        if not enabled and self._hidden_by_fullscreen:
+            self._restore_from_fullscreen()
+
+    def set_activity_aware(self, enabled: bool) -> None:
+        self._activity_aware = enabled
+        self.config["activity_aware"] = enabled
+        save_config(self.config)
+
     def open_reminder_settings(self) -> None:
         dlg = ReminderSettingsDialog(
             self.config["reminders"],
@@ -751,10 +861,14 @@ class GeminiPetWindow(QWidget):
             save_config(self.config)
             self._reminder_mgr.update_config(new_rem)
             self._pet_bliss = 1.0
-            self.say("提醒设置已更新！我会按时叫你的喵~ ✦", duration_ms=3500)
+            self.say("提醒已极其完美地更新！我会极其准时叫你喵~ ✦", duration_ms=3500)
 
     def _show_context_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
+
+        scan_act = QAction("看看我在干嘛 👀", menu)
+        scan_act.triggered.connect(self.inspect_activity_now)
+        menu.addAction(scan_act)
 
         expr_menu = menu.addMenu("切换姿势 / 表情")
         expr_group = QActionGroup(expr_menu)
@@ -776,6 +890,16 @@ class GeminiPetWindow(QWidget):
         auto_act.setChecked(self._auto_pose)
         auto_act.triggered.connect(self.set_auto_pose)
         menu.addAction(auto_act)
+
+        fs_act = QAction("全屏时自动隐藏", menu, checkable=True)
+        fs_act.setChecked(self._hide_on_fullscreen)
+        fs_act.triggered.connect(self.set_hide_on_fullscreen)
+        menu.addAction(fs_act)
+
+        act_aware = QAction("应用/进程感知互动", menu, checkable=True)
+        act_aware.setChecked(self._activity_aware)
+        act_aware.triggered.connect(self.set_activity_aware)
+        menu.addAction(act_aware)
 
         top_act = QAction("窗口置顶", menu, checkable=True)
         top_act.setChecked(self._always_on_top)
@@ -807,18 +931,26 @@ class GeminiPetWindow(QWidget):
         menu.exec(global_pos)
 
     def _manual_expression(self, expr: str) -> None:
-        self._state = "sleepy" if expr == "sleepy" else "idle"
+        self._state = "sleepy" if expr in ("sleepy", "nap", "side_sleep") else "idle"
         self.set_expression(expr, duration_sec=0.0)
         self._particles.spawn_stars(self.width() / 2, self.height() * 0.42, count=6, spread=42)
-        if expr in ("happy", "purr", "groom", "pounce", "shy", "sleepy", "stretch", "drag"):
+        if expr in ("nap", "side_sleep", "purr", "groom", "pounce", "shy", "sleepy", "stretch", "drag"):
             self.say(pick_line(expr), duration_ms=3800)
 
     def hide_pet(self) -> None:
+        self._manually_hidden = True
+        self._hidden_by_fullscreen = False
         self._bubble.hide()
         self.hide()
+        self._anim_timer.stop()
 
     def show_pet(self) -> None:
+        self._manually_hidden = False
+        self._hidden_by_fullscreen = False
+        self._last_tick = time.monotonic()
+        if not self._anim_timer.isActive():
+            self._anim_timer.start()
         self.show()
         self.raise_()
         self._pet_bliss = 0.8
-        self.say("我回来啦喵~ ✦", duration_ms=3000)
+        self.say("极其丝滑地从托盘钻回来啦喵~ ✦", duration_ms=3000)
