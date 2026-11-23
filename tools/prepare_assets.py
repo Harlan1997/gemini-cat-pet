@@ -20,7 +20,7 @@ HD_SOURCES: dict[str, Path] = {
     "pounce": ARTIFACT_DIR / "cat_crossleg_star_fixed_1795365958311.jpg",
     "shy": ARTIFACT_DIR / "pose_shy_kneel_1795287700058.jpg",
     "sleepy": ARTIFACT_DIR / "cute_sleepy_1795286782479.jpg",
-    "stretch": ARTIFACT_DIR / "cat_real_stretch_1795368445411.jpg",
+    "stretch": ARTIFACT_DIR / "cat_yawn_stretch_v3_1795371580152.jpg",
     "drag": ARTIFACT_DIR / "cute_drag_1795286797972.jpg",
 }
 

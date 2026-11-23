@@ -36,7 +36,7 @@ EXPRESSION_LABELS: dict[str, str] = {
     "pounce": "盘腿玩星芒 ✦",
     "shy": "害羞鸭子坐 💕",
     "sleepy": "抱尾打盹 💤",
-    "stretch": "猫式伸懒腰 🌟",
+    "stretch": "伸懒腰打哈欠 🌟",
     "drag": "拎猫悬空 🎀",
 }
 
@@ -64,7 +64,7 @@ POSE_HEIGHT_RATIO: dict[str, float] = {
     "pounce": 0.70,
     "shy": 0.70,
     "sleepy": 0.73,
-    "stretch": 0.50,
+    "stretch": 0.78,
     "drag": 0.85,
 }
 
@@ -861,7 +861,7 @@ class GeminiPetWindow(QWidget):
             save_config(self.config)
             self._reminder_mgr.update_config(new_rem)
             self._pet_bliss = 1.0
-            self.say("提醒已极其完美地更新！我会极其准时叫你喵~ ✦", duration_ms=3500)
+            self.say("提醒设置已更新！我会准时叫你喵~ ✦", duration_ms=3500)
 
     def _show_context_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
@@ -953,4 +953,4 @@ class GeminiPetWindow(QWidget):
         self.show()
         self.raise_()
         self._pet_bliss = 0.8
-        self.say("极其丝滑地从托盘钻回来啦喵~ ✦", duration_ms=3000)
+        self.say("从托盘里丝滑钻回来啦喵~ ✦", duration_ms=3000)
