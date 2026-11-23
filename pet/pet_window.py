@@ -480,6 +480,10 @@ class GeminiPetWindow(QWidget):
             else:
                 self._particles.spawn_zzz(self.width() * 0.56, self.height() * 0.42)
 
+        # Safety release if LeftButton is no longer held (prevents sticky drag on missed Release)
+        if self._dragging and not (QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+            self._cancel_drag()
+
         # Drag pendulum spring physics
         if not self._dragging:
             spring_k = 120.0
@@ -673,6 +677,26 @@ class GeminiPetWindow(QWidget):
 
         self._particles.draw(painter)
 
+    def _cancel_drag(self) -> None:
+        """Safely release stuck drag state if mouse release was lost (e.g. focus steal)."""
+        if not self._dragging:
+            return
+        was_moved = self._drag_moved
+        self._dragging = False
+        self._drag_moved = False
+        if was_moved:
+            self._save_position()
+            self.set_expression("idle")
+            self._pet_bliss = 0.0
+
+    def focusOutEvent(self, event) -> None:
+        self._cancel_drag()
+        super().focusOutEvent(event)
+
+    def hideEvent(self, event) -> None:
+        self._cancel_drag()
+        super().hideEvent(event)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
@@ -684,11 +708,15 @@ class GeminiPetWindow(QWidget):
             self._state = "idle"
             event.accept()
         elif event.button() == Qt.MouseButton.RightButton:
+            self._cancel_drag()
             self._show_context_menu(event.globalPosition().toPoint())
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._dragging:
+            if not (event.buttons() & Qt.MouseButton.LeftButton):
+                self._cancel_drag()
+                return
             gpos = event.globalPosition().toPoint()
             if (gpos - self._press_pos).manhattanLength() > 6:
                 self._drag_moved = True
@@ -757,6 +785,8 @@ class GeminiPetWindow(QWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._drag_moved = False
             self._state = "idle"
             self.set_expression("purr", duration_sec=4.5)
             self._particles.spawn_heart(self.width() / 2, self.height() * 0.34)
