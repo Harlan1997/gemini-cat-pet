@@ -386,10 +386,13 @@ class GeminiPetWindow(QWidget):
                     self._next_blink_at = now + random.uniform(2.8, 5.8)
 
     def _trigger_ear_twitch(self, side: str) -> None:
-        if side == "left":
-            self._ear_l_vel = 13.5
+        if side == "both":
+            self._ear_l_vel = 18.5
+            self._ear_r_vel = 18.5
+        elif side == "left":
+            self._ear_l_vel = 18.5
         else:
-            self._ear_r_vel = 13.5
+            self._ear_r_vel = 18.5
 
     def _update_cursor_tracking(self, dt: float) -> None:
         key = self._active_pose_key()
@@ -448,16 +451,16 @@ class GeminiPetWindow(QWidget):
 
         # Random subtle cat ear twitches
         if now >= self._next_ear_twitch_at:
-            self._next_ear_twitch_at = now + random.uniform(3.5, 8.5)
-            self._trigger_ear_twitch(random.choice(["left", "right"]))
+            self._next_ear_twitch_at = now + random.uniform(2.0, 4.8)
+            self._trigger_ear_twitch(random.choice(["left", "right", "left", "right", "both"]))
 
         # Spring-damper physics for both cat ears
         for attr_val, attr_vel in (("_ear_l_twitch", "_ear_l_vel"), ("_ear_r_twitch", "_ear_r_vel")):
             val = getattr(self, attr_val)
             vel = getattr(self, attr_vel)
-            acc = -170.0 * val - 15.0 * vel
+            acc = -210.0 * val - 13.5 * vel
             vel += acc * dt
-            val = max(-0.25, min(1.2, val + vel * dt))
+            val = max(-0.35, min(1.35, val + vel * dt))
             if abs(val) < 0.005 and abs(vel) < 0.01:
                 val, vel = 0.0, 0.0
             setattr(self, attr_val, val)
@@ -575,9 +578,9 @@ class GeminiPetWindow(QWidget):
             foot_l = math.sin(self._feet_phase + 0.8) * 0.75
             foot_r = math.sin(self._feet_phase + 3.6) * 0.75
 
-            # Cat ears: combine random/hover twitch + gentle blissful relaxation when petted
-            ear_l = self._ear_l_twitch + self._pet_bliss * 0.48
-            ear_r = self._ear_r_twitch + self._pet_bliss * 0.48
+            # Cat ears: continuous gentle listening sway + snappy twitches + happy petting wiggle
+            ear_l = self._ear_l_twitch + math.sin(t * 1.6) * 0.14 + self._pet_bliss * (0.58 + math.sin(t * 9.0) * 0.16)
+            ear_r = self._ear_r_twitch + math.sin(t * 1.6 + 0.75) * 0.14 + self._pet_bliss * (0.58 - math.sin(t * 9.0) * 0.16)
             ahoge = math.sin(t * 2.1 - 0.4) * 0.45 + self._pet_bliss * math.sin(t * 7.5) * 0.4
             breath = math.sin(t * 1.75)
             breeze = math.sin(t * 1.35 + 0.7) * 0.75

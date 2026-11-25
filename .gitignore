@@ -8,8 +8,12 @@ build/
 dist/
 *.spec
 
-# Local runtime config
+# Local runtime config & credentials
 config.json
+cookies.json
+.venv_tts/
+tools/biliup/
+gemini_cat_pet_promo*.mp4
 
 # Unused intermediate assets
 assets/idle_white_bg.png

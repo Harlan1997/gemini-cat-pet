@@ -172,16 +172,24 @@ class ProneIdleRig:
         )
 
         # 3. Independent cat ear twitches + bouncy top ahoge
-        d_ear_l = np.hypot((nx - 0.155) / 0.075, (ny - 0.185) / 0.095)
-        w_ear_l = (1.0 - _smoothstep(0.45, 1.05, d_ear_l)) * (1.0 - _smoothstep(0.22, 0.27, ny))
+        d_ear_l = np.hypot((nx - 0.150) / 0.080, (ny - 0.180) / 0.105)
+        w_ear_l = (
+            (1.0 - _smoothstep(0.55, 1.15, d_ear_l))
+            * (1.0 - _smoothstep(0.23, 0.28, ny))
+            * (1.0 - _smoothstep(0.22, 0.26, nx))
+        )
         self.ear_l_x, self.ear_l_y = _rot_basis(
-            nx, ny, 0.195, 0.235, w_ear_l, math.radians(-10.5), bw, bh
+            nx, ny, 0.195, 0.245, w_ear_l, math.radians(-17.5), bw, bh
         )
 
-        d_ear_r = np.hypot((nx - 0.375) / 0.075, (ny - 0.155) / 0.095)
-        w_ear_r = (1.0 - _smoothstep(0.45, 1.05, d_ear_r)) * (1.0 - _smoothstep(0.20, 0.25, ny))
+        d_ear_r = np.hypot((nx - 0.375) / 0.080, (ny - 0.150) / 0.105)
+        w_ear_r = (
+            (1.0 - _smoothstep(0.55, 1.15, d_ear_r))
+            * (1.0 - _smoothstep(0.20, 0.25, ny))
+            * _smoothstep(0.315, 0.345, nx)
+        )
         self.ear_r_x, self.ear_r_y = _rot_basis(
-            nx, ny, 0.345, 0.210, w_ear_r, math.radians(10.5), bw, bh
+            nx, ny, 0.340, 0.225, w_ear_r, math.radians(17.5), bw, bh
         )
 
         d_ahoge = np.hypot((nx - 0.270) / 0.065, (ny - 0.125) / 0.070)
