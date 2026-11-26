@@ -55,6 +55,8 @@ if sys.platform == "win32":
     _user32.GetMonitorInfoW.restype = wintypes.BOOL
     _user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
     _user32.GetWindowLongW.restype = wintypes.LONG
+    _user32.IsZoomed.argtypes = [wintypes.HWND]
+    _user32.IsZoomed.restype = wintypes.BOOL
 
     _MONITOR_DEFAULTTONEAREST = 2
     _QUNS_BUSY = 2
@@ -92,13 +94,19 @@ def is_fullscreen_on_widget_monitor(widget_hwnd: int) -> bool:
         if pet_mon and fg_mon and pet_mon != fg_mon:
             return False
 
-        # 1. Check Direct3D exclusive fullscreen / presentation mode via Shell API
+        # 1. A maximized normal/custom-titlebar window (IsZoomed == True) is NEVER fullscreen.
+        # Must check BEFORE SHQueryUserNotificationState, because Windows Explorer's QUNS_RUNNING_D3D_FULL_SCREEN
+        # heuristic can also trigger on frameless Electron/Chromium windows when maximized.
+        if _user32.IsZoomed(fg):
+            return False
+
+        # 2. Check Direct3D exclusive fullscreen / presentation mode via Shell API
         quns = ctypes.c_int(0)
         if _shell32.SHQueryUserNotificationState(ctypes.byref(quns)) == 0:
             if quns.value in (_QUNS_RUNNING_D3D_FULL_SCREEN, _QUNS_PRESENTATION_MODE):
                 return True
 
-        # 2. Check if the foreground window covers the entire monitor bounds (borderless / browser video / F11)
+        # 3. Check if the foreground window covers the entire monitor bounds (borderless / browser video / F11)
         win_rect = _RECT()
         if not _user32.GetWindowRect(fg, ctypes.byref(win_rect)):
             return False
@@ -113,6 +121,17 @@ def is_fullscreen_on_widget_monitor(widget_hwnd: int) -> bool:
         mon_w = mr.right - mr.left
         mon_h = mr.bottom - mr.top
         if mon_w <= 0 or mon_h <= 0:
+            return False
+
+        # Windows 10/11 maximized windows extend ~7-8px outside rcMonitor on all 4 sides (DWM invisible border),
+        # whereas true F11 / borderless fullscreen windows align flush with rcMonitor.
+        has_max_overscan = (
+            win_rect.left <= mr.left - 4
+            and win_rect.top <= mr.top - 4
+            and win_rect.right >= mr.right + 4
+            and win_rect.bottom >= mr.bottom + 4
+        )
+        if has_max_overscan:
             return False
 
         tol = 2

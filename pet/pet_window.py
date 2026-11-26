@@ -155,6 +155,8 @@ class GeminiPetWindow(QWidget):
         self._tilt_angle = 0.0
         self._tilt_vel = 0.0
         self._drag_line_shown = False
+        dock = config.get("dock_edge")
+        self._dock_edge: str | None = dock if dock in ("left", "right") else None
 
         # Sub-components
         self._particles = ParticleSystem()
@@ -244,14 +246,48 @@ class GeminiPetWindow(QWidget):
 
         self.setFixedSize(max_w + self._pad * 2, max_h + self._pad * 2)
 
+    def _edge_peek_x(self, edge: str, avail: QRect) -> int:
+        sw, _ = self._pose_logical_sizes.get("idle", (240, 174))
+        peek_w = int(round(sw * 0.50))
+        if edge == "left":
+            sprite_right_in_win = (self.width() + sw) // 2
+            return avail.left() - (sprite_right_in_win - peek_w)
+        sprite_left_in_win = (self.width() - sw) // 2
+        return avail.right() - sprite_left_in_win - peek_w
+
+    def _snap_to_edge_if_near(self) -> None:
+        screen = QApplication.screenAt(self.frameGeometry().center()) or QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen else QRect(0, 0, 1920, 1080)
+        sw, _ = self._pose_logical_sizes.get("idle", (240, 174))
+        sprite_left = self.x() + (self.width() - sw) // 2
+        sprite_right = sprite_left + sw
+        cur_x = QCursor.pos().x()
+
+        if sprite_left <= avail.left() - int(sw * 0.14) or cur_x <= avail.left() + 24:
+            self._dock_edge = "left"
+            x = self._edge_peek_x("left", avail)
+        elif sprite_right >= avail.right() + int(sw * 0.14) or cur_x >= avail.right() - 24:
+            self._dock_edge = "right"
+            x = self._edge_peek_x("right", avail)
+        else:
+            self._dock_edge = None
+            x = max(avail.left(), min(self.x(), avail.right() - self.width()))
+
+        y = max(avail.top(), min(self.y(), avail.bottom() - self.height() + self._pad))
+        self.move(x, y)
+
     def _restore_position(self) -> None:
         screen = QApplication.primaryScreen()
         avail = screen.availableGeometry() if screen else QRect(0, 0, 1920, 1080)
         px = self.config.get("pos_x")
         py = self.config.get("pos_y")
         if isinstance(px, int) and isinstance(py, int):
-            x = max(avail.left(), min(px, avail.right() - self.width()))
-            y = max(avail.top(), min(py, avail.bottom() - self.height()))
+            if self._dock_edge in ("left", "right"):
+                x = self._edge_peek_x(self._dock_edge, avail)
+                y = max(avail.top(), min(py, avail.bottom() - self.height() + self._pad))
+            else:
+                x = max(avail.left(), min(px, avail.right() - self.width()))
+                y = max(avail.top(), min(py, avail.bottom() - self.height()))
             self.move(x, y)
         else:
             x = avail.right() - self.width() - 32
@@ -261,6 +297,7 @@ class GeminiPetWindow(QWidget):
     def _save_position(self) -> None:
         self.config["pos_x"] = self.x()
         self.config["pos_y"] = self.y()
+        self.config["dock_edge"] = self._dock_edge
         save_config(self.config)
 
     def _active_pose_key(self) -> str:
@@ -294,6 +331,12 @@ class GeminiPetWindow(QWidget):
         sw, sh = self._pose_logical_sizes.get(key, (int(self._pet_height * 0.7), self._pet_height))
         top_y = self.height() - self._pad - sh
         left_x = (self.width() - sw) // 2
+        if self._dock_edge == "left":
+            peek_w = int(round(sw * 0.50))
+            return QRect(self.x() + left_x + sw - peek_w, self.y() + top_y, peek_w, sh)
+        if self._dock_edge == "right":
+            peek_w = int(round(sw * 0.50))
+            return QRect(self.x() + left_x, self.y() + top_y, peek_w, sh)
         return QRect(self.x() + left_x, self.y() + top_y, sw, sh)
 
     def _on_reminder(self, title: str, message: str, expr: str) -> None:
@@ -414,6 +457,8 @@ class GeminiPetWindow(QWidget):
             ty = max(-1.0, min(1.0, dy / 190.0))
         else:
             tx, ty = 0.0, 0.0
+        if self._dock_edge == "left":
+            tx = -tx
 
         alpha = min(1.0, dt * 6.5)
         self._look_x += (tx - self._look_x) * alpha
@@ -433,8 +478,14 @@ class GeminiPetWindow(QWidget):
             self._state = "idle"
             self._expression = "idle"
 
-        # Calm autonomous behavior transitions (disabled if user prefers pure lying-down mode)
-        if self._auto_pose and not self._dragging and self._pet_bliss < 0.1 and now >= self._next_behavior_at:
+        # Calm autonomous behavior transitions (disabled while edge-docked so peeking pose stays intact)
+        if (
+            self._auto_pose
+            and not self._dragging
+            and self._dock_edge is None
+            and self._pet_bliss < 0.1
+            and now >= self._next_behavior_at
+        ):
             self._choose_next_behavior(now)
 
         # Advance organic phases (speed up gently when happily being petted!)
@@ -625,6 +676,7 @@ class GeminiPetWindow(QWidget):
             return
         baseline_y = float(self.height() - self._pad)
         center_x = self.width() / 2.0
+        mirror_x = (self._dock_edge == "left") and not (self._dragging and self._drag_moved)
 
         painter.save()
         painter.setOpacity(opacity)
@@ -632,12 +684,12 @@ class GeminiPetWindow(QWidget):
             pivot_y = baseline_y - (lh - pad_b) * 0.78
             painter.translate(center_x, pivot_y)
             painter.rotate(self._tilt_angle)
-            painter.scale(settle_scale, settle_scale)
+            painter.scale(-settle_scale if mirror_x else settle_scale, settle_scale)
             painter.drawPixmap(int(-lw / 2.0), int(-(lh - pad_b) * 0.22), pix)
         else:
             painter.translate(center_x, baseline_y + pad_b)
             painter.rotate(self._tilt_angle)
-            painter.scale(settle_scale, settle_scale)
+            painter.scale(-settle_scale if mirror_x else settle_scale, settle_scale)
             painter.drawPixmap(int(-lw / 2.0), int(-lh), pix)
         painter.restore()
 
@@ -723,6 +775,7 @@ class GeminiPetWindow(QWidget):
             gpos = event.globalPosition().toPoint()
             if (gpos - self._press_pos).manhattanLength() > 6:
                 self._drag_moved = True
+                self._dock_edge = None
             dx = gpos.x() - self._last_drag_x
             self._last_drag_x = gpos.x()
 
@@ -746,6 +799,8 @@ class GeminiPetWindow(QWidget):
             left_x = (self.width() - sw) / 2.0
             top_y = self.height() - self._pad - sh
             rel_x = (pos.x() - left_x) / max(1.0, float(sw))
+            if self._dock_edge == "left":
+                rel_x = 1.0 - rel_x
             rel_y = (pos.y() - top_y) / max(1.0, float(sh))
 
             if 0.08 <= rel_x <= 0.46 and 0.06 <= rel_y <= 0.56:
@@ -778,6 +833,7 @@ class GeminiPetWindow(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._dragging = False
             if self._drag_moved:
+                self._snap_to_edge_if_near()
                 self._save_position()
                 self.set_expression("idle")
                 self._pet_bliss = 0.0
@@ -810,6 +866,8 @@ class GeminiPetWindow(QWidget):
         left_x = (self.width() - sw) / 2.0
         top_y = self.height() - self._pad - sh
         rel_x = (pos.x() - left_x) / max(1.0, float(sw))
+        if self._dock_edge == "left":
+            rel_x = 1.0 - rel_x
         rel_y = (pos.y() - top_y) / max(1.0, float(sh))
 
         if key == "idle":
